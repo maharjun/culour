@@ -14,6 +14,9 @@ class TerminalColors(object):
     RED = '[91'
     BLACK = '[90'
     END = '[0'
+    # Style codes
+    BOLD = '[1'
+    UNDERLINE = '[4'
 
 
 # Translates between the terminal notation of a color, to it's curses color number
@@ -40,13 +43,26 @@ def _get_color(fg, bg):
     return COLOR_PAIRS_CACHE[key]
 
 
-def _color_str_to_color_pair(color):
-    if color == TerminalColors.END:
+def _parse_ansi_code(code_str):
+    """Parse ANSI code string and return (color_pair, attributes)"""
+    fg = curses.COLOR_WHITE
+    attributes = 0
+    
+    # Handle style codes
+    if code_str == TerminalColors.BOLD:
+        attributes |= curses.A_BOLD
+    elif code_str == TerminalColors.UNDERLINE:
+        attributes |= curses.A_UNDERLINE
+    elif code_str == TerminalColors.END:
+        # Reset to defaults
         fg = curses.COLOR_WHITE
-    else:
-        fg = TERMINAL_COLOR_TO_CURSES[color]
+        attributes = 0
+    elif code_str in TERMINAL_COLOR_TO_CURSES:
+        # Handle color codes
+        fg = TERMINAL_COLOR_TO_CURSES[code_str]
+    
     color_pair = _get_color(fg, curses.COLOR_BLACK)
-    return color_pair
+    return color_pair, attributes
 
 
 def _add_line(y, x, window, line):
@@ -58,12 +74,33 @@ def _add_line(y, x, window, line):
     window.addstr(y, x, color_split[0], curses.color_pair(default_color_pair))
     x += len(color_split[0])
 
+    # Track current attributes across the line
+    current_attributes = 0
+    current_color_pair = default_color_pair
+
     # Iterate over the rest of the line-parts and print them with their colors
     for substring in color_split[1:]:
-        color_str = substring.split('m')[0]
-        substring = substring[len(color_str)+1:]
-        color_pair = _color_str_to_color_pair(color_str)
-        window.addstr(y, x, substring, curses.color_pair(color_pair))
+        code_str = substring.split('m')[0]
+        substring = substring[len(code_str)+1:]
+        
+        # Parse the ANSI code
+        color_pair, attributes = _parse_ansi_code(code_str)
+        
+        # Update current state
+        if code_str == TerminalColors.END:
+            # Reset everything
+            current_attributes = 0
+            current_color_pair = default_color_pair
+        elif code_str in [TerminalColors.BOLD, TerminalColors.UNDERLINE]:
+            # Add to existing attributes
+            current_attributes |= attributes
+        else:
+            # Color change - keep existing attributes
+            current_color_pair = color_pair
+        
+        # Apply both color and attributes
+        display_attrs = curses.color_pair(current_color_pair) | current_attributes
+        window.addstr(y, x, substring, display_attrs)
         x += len(substring)
 
 
